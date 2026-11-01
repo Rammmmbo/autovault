@@ -3,8 +3,8 @@
   "autovault.configuration.title": "Auto Vault",
   "autovault.configuration.heavyCore": "Heavy Core",
   "autovault.configuration.windBurst": "Wind Burst Book",
-  "autovault.configuration.mace": "Mace",
   "autovault.configuration.trident": "Trident",
   "autovault.configuration.normalVaults": "Open normal vaults",
-  "autovault.configuration.ominousVaults": "Open ominous vaults"
+  "autovault.configuration.ominousVaults": "Open ominous vaults",
+  "autovault.configuration.dryRun": "Test mode (no clicking)"
 }
