@@ -1,12 +1,18 @@
 {
   "key.autovault.toggle": "Toggle Auto Vault",
-  "autovault.configuration.title": "Auto Vault",
-  "autovault.configuration.heavyCore": "Heavy Core",
-  "autovault.configuration.windBurst": "Wind Burst Book",
+  "key.autovault.open_gui": "Open Auto Vault settings",
+  "autovault.configuration.title": "Auto Vault Settings",
+  "autovault.configuration.enabled": "Auto Vault enabled",
+  "autovault.configuration.openNormal": "Normal Vaults",
+  "autovault.configuration.openOminous": "Ominous Vaults",
+  "autovault.configuration.useFilter": "Use Item Filter",
+  "autovault.configuration.windBurstOnly": "Wind Burst Only",
   "autovault.configuration.trident": "Trident",
-  "autovault.configuration.normalVaults": "Open normal vaults",
-  "autovault.configuration.ominousVaults": "Open ominous vaults",
-  "autovault.configuration.minDisplayTicks": "Min. display time (ticks)",
-  "autovault.configuration.maxDisplayTicks": "Max. display age (ticks, 40 = off)",
-  "autovault.configuration.dryRun": "Test mode (no clicking)"
+  "autovault.configuration.mace": "Mace",
+  "autovault.configuration.core": "Heavy Core",
+  "autovault.configuration.book": "Enchanted Book",
+  "autovault.configuration.customItems": "Custom items (IDs, comma separated)",
+  "autovault.hud.spinning_item": "§7In Vault: §e%s§r",
+  "autovault.hud.spinning_item_wind_burst": "§7In Vault: §a%s §e(Wind Burst)§r",
+  "autovault.chat.toggle": "[AutoVault] Auto Vault: %s"
 }

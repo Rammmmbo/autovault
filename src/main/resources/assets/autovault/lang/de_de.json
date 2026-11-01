@@ -1,0 +1,18 @@
+{
+  "key.autovault.toggle": "Auto Vault an/aus",
+  "key.autovault.open_gui": "Auto-Vault-Einstellungen öffnen",
+  "autovault.configuration.title": "Auto-Vault-Einstellungen",
+  "autovault.configuration.enabled": "Auto Vault aktiv",
+  "autovault.configuration.openNormal": "Normale Vaults",
+  "autovault.configuration.openOminous": "Unheilvolle Vaults",
+  "autovault.configuration.useFilter": "Item-Filter benutzen",
+  "autovault.configuration.windBurstOnly": "Nur Wind Burst",
+  "autovault.configuration.trident": "Dreizack",
+  "autovault.configuration.mace": "Streitkolben",
+  "autovault.configuration.core": "Schwerer Kern",
+  "autovault.configuration.book": "Verzaubertes Buch",
+  "autovault.configuration.customItems": "Eigene Items (IDs, mit Komma getrennt)",
+  "autovault.hud.spinning_item": "§7Im Vault: §e%s§r",
+  "autovault.hud.spinning_item_wind_burst": "§7Im Vault: §a%s §e(Wind Burst)§r",
+  "autovault.chat.toggle": "[AutoVault] Auto Vault: %s"
+}

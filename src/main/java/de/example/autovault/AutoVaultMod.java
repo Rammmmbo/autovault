@@ -3,16 +3,18 @@ package de.example.autovault;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.VaultBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.vault.VaultBlockEntity;
@@ -36,7 +38,13 @@ import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
+/**
+ * Auto Vault fuer NeoForge 26.2 (nur Client).
+ * Nachbau der Funktionen der Fabric-Mod "Auto Vault" von Fix85 (MIT-Lizenz).
+ */
 @Mod(value = AutoVaultMod.MOD_ID, dist = Dist.CLIENT)
 public class AutoVaultMod {
     public static final String MOD_ID = "autovault";
@@ -45,66 +53,67 @@ public class AutoVaultMod {
     public static class Config {
         private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
 
-        public static final ModConfigSpec.BooleanValue HEAVY_CORE = B
-                .comment("Open the vault when it shows a Heavy Core")
-                .translation("autovault.configuration.heavyCore")
-                .define("heavyCore", true);
+        public static final ModConfigSpec.BooleanValue ENABLED = B
+                .comment("Enable or disable the auto-opener mod entirely")
+                .translation("autovault.configuration.enabled")
+                .define("enabled", true);
 
-        public static final ModConfigSpec.BooleanValue WIND_BURST = B
-                .comment("Open the vault when it shows a Wind Burst book")
-                .translation("autovault.configuration.windBurst")
-                .define("windBurst", true);
+        public static final ModConfigSpec.BooleanValue OPEN_NORMAL = B
+                .comment("Allow auto-opening normal trial vaults")
+                .translation("autovault.configuration.openNormal")
+                .define("openNormal", true);
+
+        public static final ModConfigSpec.BooleanValue OPEN_OMINOUS = B
+                .comment("Allow auto-opening ominous trial vaults")
+                .translation("autovault.configuration.openOminous")
+                .define("openOminous", true);
+
+        public static final ModConfigSpec.BooleanValue USE_FILTER = B
+                .comment("If ON, vaults only open if they show a selected preset or custom item. If OFF, every vault opens.")
+                .translation("autovault.configuration.useFilter")
+                .define("useFilter", true);
+
+        public static final ModConfigSpec.BooleanValue WIND_BURST_ONLY = B
+                .comment("Enchanted Books only count if they have the Wind Burst enchantment")
+                .translation("autovault.configuration.windBurstOnly")
+                .define("windBurstOnly", true);
 
         public static final ModConfigSpec.BooleanValue TRIDENT = B
-                .comment("Open the vault when it shows a Trident")
+                .comment("Preset: Trident")
                 .translation("autovault.configuration.trident")
-                .define("trident", false);
+                .define("trident", true);
 
-        public static final ModConfigSpec.BooleanValue NORMAL_VAULTS = B
-                .comment("Open normal vaults (Trial Key)")
-                .translation("autovault.configuration.normalVaults")
-                .define("normalVaults", true);
+        public static final ModConfigSpec.BooleanValue MACE = B
+                .comment("Preset: Mace")
+                .translation("autovault.configuration.mace")
+                .define("mace", true);
 
-        public static final ModConfigSpec.BooleanValue OMINOUS_VAULTS = B
-                .comment("Open ominous vaults (Ominous Trial Key)")
-                .translation("autovault.configuration.ominousVaults")
-                .define("ominousVaults", true);
+        public static final ModConfigSpec.BooleanValue CORE = B
+                .comment("Preset: Heavy Core")
+                .translation("autovault.configuration.core")
+                .define("heavyCore", true);
 
-        public static final ModConfigSpec.IntValue MIN_DISPLAY_TICKS = B
-                .comment("Item must have been shown at least this many ticks (20 ticks = 1 second)")
-                .translation("autovault.configuration.minDisplayTicks")
-                .defineInRange("minDisplayTicks", 0, 0, 40);
+        public static final ModConfigSpec.BooleanValue BOOK = B
+                .comment("Preset: Enchanted Book")
+                .translation("autovault.configuration.book")
+                .define("enchantedBook", true);
 
-        public static final ModConfigSpec.IntValue MAX_DISPLAY_TICKS = B
-                .comment("Only open if the item appeared at most this many ticks ago (40 = off)")
-                .translation("autovault.configuration.maxDisplayTicks")
-                .defineInRange("maxDisplayTicks", 3, 0, 40);
-
-        public static final ModConfigSpec.BooleanValue DRY_RUN = B
-                .comment("Test mode: do not click, only show what the mod would open")
-                .translation("autovault.configuration.dryRun")
-                .define("dryRun", false);
+        public static final ModConfigSpec.ConfigValue<String> CUSTOM_ITEMS = B
+                .comment("Custom filter: item IDs separated by commas, e.g. minecraft:diamond,minecraft:emerald")
+                .translation("autovault.configuration.customItems")
+                .define("customItems", "");
 
         public static final ModConfigSpec SPEC = B.build();
     }
 
+    private static ModContainer modContainer;
     private static KeyMapping toggleKey;
-    private static boolean enabled = true;
+    private static KeyMapping openGuiKey;
     private static int cooldown = 0;
     private static Field sharedDataField;
 
-    // Logging nach dem Klick bzw. nach der Testmodus-Meldung
-    private static BlockPos watchPos = null;
-    private static int watchTicks = 0;
-    private static String lastWatched = "";
-
-    // Wie lange wird das aktuelle Item schon angezeigt?
-    private static BlockPos trackedPos = null;
-    private static ItemStack trackedStack = null;
-    private static long trackedSince = 0;
-    private static boolean trackedExact = false; // true = wir haben den Wechsel selbst gesehen
-
     public AutoVaultMod(IEventBus modBus, ModContainer container) {
+        modContainer = container;
         container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(AutoVaultMod::registerKeys);
@@ -113,143 +122,118 @@ public class AutoVaultMod {
 
     private static void registerKeys(RegisterKeyMappingsEvent event) {
         toggleKey = new KeyMapping("key.autovault.toggle", GLFW.GLFW_KEY_G, KeyMapping.Category.MISC);
+        openGuiKey = new KeyMapping("key.autovault.open_gui", GLFW.GLFW_KEY_H, KeyMapping.Category.MISC);
         event.register(toggleKey);
-    }
-
-    private static void resetTrack() {
-        trackedPos = null;
-        trackedStack = null;
-        trackedExact = false;
-    }
-
-    private static long ms() {
-        return System.currentTimeMillis() % 100000;
+        event.register(openGuiKey);
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
 
-        // Log: was zeigt der Vault nach dem Klick bzw. nach der Testmodus-Meldung?
-        if (watchTicks > 0 && watchPos != null) {
-            BlockEntity wbe = mc.level.getBlockEntity(watchPos);
-            if (wbe instanceof VaultBlockEntity wv) {
-                ItemStack w = getDisplayItem(wv);
-                String n = (w == null || w.isEmpty()) ? "leer" : w.getHoverName().getString();
-                if (!n.equals(lastWatched)) {
-                    LOG.info("[AutoVault] gameTime={} ms={} DANACH Anzeige wechselt zu: {}",
-                            mc.level.getGameTime(), ms(), n);
-                    lastWatched = n;
-                }
-            }
-            watchTicks--;
-        }
-
         while (toggleKey != null && toggleKey.consumeClick()) {
-            enabled = !enabled;
-            mc.player.sendOverlayMessage(
-                    Component.literal("Auto Vault: " + (enabled ? "AN" : "AUS")));
+            boolean now = !Config.ENABLED.get();
+            Config.ENABLED.set(now);
+            Config.ENABLED.save();
+            mc.player.sendOverlayMessage(Component.translatable(
+                    "autovault.chat.toggle", Component.literal(now ? "§aON§r" : "§cOFF§r")));
         }
 
-        if (!enabled) { resetTrack(); return; }
-        if (mc.gui.screen() != null) { resetTrack(); return; }
-
-        boolean onCooldown = cooldown > 0;
-        if (onCooldown) cooldown--;
-
-        if (!(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) {
-            resetTrack();
-            return;
+        while (openGuiKey != null && openGuiKey.consumeClick()) {
+            openConfigScreen(mc);
         }
+
+        if (!Config.ENABLED.get()) return;
+        if (cooldown > 0) { cooldown--; return; }
+        if (mc.gui.screen() != null) return;
+
+        if (!(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
 
         BlockPos pos = hit.getBlockPos();
         BlockState state = mc.level.getBlockState(pos);
-        if (!state.is(Blocks.VAULT) || state.getValue(VaultBlock.STATE) != VaultState.ACTIVE) {
-            resetTrack();
-            return;
-        }
-
-        BlockEntity be = mc.level.getBlockEntity(pos);
-        if (!(be instanceof VaultBlockEntity vault)) { resetTrack(); return; }
-
-        ItemStack display = getDisplayItem(vault);
-        if (display == null || display.isEmpty()) { resetTrack(); return; }
-
-        // Anzeigedauer verfolgen
-        long now = mc.level.getGameTime();
-        if (!pos.equals(trackedPos) || trackedStack == null
-                || !ItemStack.isSameItemSameComponents(trackedStack, display)) {
-            // Jeder Wechsel wird ins Log geschrieben (zeigt, wie lange jedes Item sichtbar war)
-            if (trackedStack != null && pos.equals(trackedPos)) {
-                LOG.info("[AutoVault] gameTime={} ms={} WECHSEL {} -> {} (vorher {} Ticks sichtbar)",
-                        now, ms(), trackedStack.getHoverName().getString(),
-                        display.getHoverName().getString(), now - trackedSince);
-            }
-            // exakt nur, wenn wir vorher schon ein anderes Item auf demselben Vault gesehen haben
-            trackedExact = pos.equals(trackedPos) && trackedStack != null;
-            trackedPos = pos;
-            trackedStack = display.copy();
-            trackedSince = now;
-        }
-        long age = now - trackedSince;
-
-        if (onCooldown) return;
+        if (!(state.getBlock() instanceof VaultBlock)) return;
+        if (state.getValue(VaultBlock.STATE) != VaultState.ACTIVE) return;
 
         boolean ominous = state.getValue(VaultBlock.OMINOUS);
-        if (ominous && !Config.OMINOUS_VAULTS.get()) return;
-        if (!ominous && !Config.NORMAL_VAULTS.get()) return;
+        if (ominous && !Config.OPEN_OMINOUS.get()) return;
+        if (!ominous && !Config.OPEN_NORMAL.get()) return;
 
-        Item neededKey = ominous ? Items.OMINOUS_TRIAL_KEY : Items.TRIAL_KEY;
+        BlockEntity be = mc.level.getBlockEntity(pos);
+        if (!(be instanceof VaultBlockEntity vault)) return;
 
-        InteractionHand hand;
-        if (mc.player.getMainHandItem().is(neededKey)) hand = InteractionHand.MAIN_HAND;
-        else if (mc.player.getOffhandItem().is(neededKey)) hand = InteractionHand.OFF_HAND;
-        else return;
+        ItemStack display = getDisplayItem(vault);
+        if (display == null || display.isEmpty()) return;
 
-        if (!isWanted(display)) return;
-        if (age < Config.MIN_DISPLAY_TICKS.get()) return;
+        // Anzeige "In Vault: ..." ueber der Hotbar
+        boolean windBurstBook = display.is(Items.ENCHANTED_BOOK) && hasWindBurst(display);
+        mc.player.sendOverlayMessage(Component.translatable(
+                windBurstBook ? "autovault.hud.spinning_item_wind_burst" : "autovault.hud.spinning_item",
+                display.getHoverName()));
 
-        int max = Config.MAX_DISPLAY_TICKS.get();
-        if (max < 40) {
-            if (!trackedExact) return;   // Alter unbekannt: auf den naechsten Wechsel warten
-            if (age > max) return;       // zu spaet im Anzeige-Fenster
+        InteractionHand hand = findKeyHand(mc, ominous);
+        if (hand == null) return;
+
+        if (!passesFilter(display)) return;
+
+        LOG.info("[AutoVault] KLICK bei: {}", display.getHoverName().getString());
+        InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, hit);
+        if (result.consumesAction()) {
+            mc.player.swing(hand);
         }
-
-        String name = display.getHoverName().getString();
-
-        if (Config.DRY_RUN.get()) {
-            LOG.info("[AutoVault] gameTime={} ms={} TESTMODUS wuerde oeffnen bei: {} (seit {} Ticks, exakt={})",
-                    now, ms(), name, age, trackedExact);
-            mc.player.sendOverlayMessage(Component.literal("TEST: wuerde öffnen bei: " + name + " (" + age + " Ticks)"));
-            cooldown = 40;
-            watchPos = pos;
-            watchTicks = 60;
-            lastWatched = name;
-            return;
-        }
-
-        LOG.info("[AutoVault] gameTime={} ms={} KLICK bei: {} (seit {} Ticks, exakt={})",
-                now, ms(), name, age, trackedExact);
-        mc.gameMode.useItemOn(mc.player, hand, hit);
-        cooldown = 10;
-        watchPos = pos;
-        watchTicks = 200;
-        lastWatched = "";
-        resetTrack();
-        mc.player.sendOverlayMessage(Component.literal("Auto Vault geöffnet bei: " + name + " (" + age + " Ticks)"));
+        cooldown = 5;
     }
 
-    private static boolean isWanted(ItemStack stack) {
-        if (stack.is(Items.HEAVY_CORE)) return Config.HEAVY_CORE.get();
-        if (stack.is(Items.TRIDENT)) return Config.TRIDENT.get();
+    private static InteractionHand findKeyHand(Minecraft mc, boolean ominous) {
+        Item key = ominous ? Items.OMINOUS_TRIAL_KEY : Items.TRIAL_KEY;
+        if (mc.player.getMainHandItem().is(key)) return InteractionHand.MAIN_HAND;
+        if (mc.player.getOffhandItem().is(key)) return InteractionHand.OFF_HAND;
+        return null;
+    }
 
-        if (stack.is(Items.ENCHANTED_BOOK)) {
-            if (!Config.WIND_BURST.get()) return false;
-            ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
-            if (stored == null) return false;
-            return stored.keySet().stream().anyMatch(h -> h.is(Enchantments.WIND_BURST));
+    private static boolean passesFilter(ItemStack stack) {
+        if (!Config.USE_FILTER.get()) return true;
+
+        String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        if (!buildFilter().contains(id)) return false;
+
+        if (id.equals("minecraft:enchanted_book") && Config.WIND_BURST_ONLY.get()) {
+            return hasWindBurst(stack);
         }
-        return false;
+        return true;
+    }
+
+    private static Set<String> buildFilter() {
+        Set<String> f = new LinkedHashSet<>();
+        if (Config.TRIDENT.get()) f.add("minecraft:trident");
+        if (Config.MACE.get()) f.add("minecraft:mace");
+        if (Config.CORE.get()) f.add("minecraft:heavy_core");
+        if (Config.BOOK.get()) f.add("minecraft:enchanted_book");
+        for (String part : Config.CUSTOM_ITEMS.get().split(",")) {
+            String s = part.trim();
+            if (s.isEmpty()) continue;
+            f.add(s.contains(":") ? s : "minecraft:" + s);
+        }
+        return f;
+    }
+
+    private static boolean hasWindBurst(ItemStack stack) {
+        ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
+        if (stored == null) return false;
+        return stored.keySet().stream().anyMatch(h -> h.is(Enchantments.WIND_BURST));
+    }
+
+    /** Oeffnet die Einstellungen (setScreen per Reflection, damit es in 26.x sicher kompiliert). */
+    private static void openConfigScreen(Minecraft mc) {
+        Screen screen = new ConfigurationScreen(modContainer, mc.gui.screen());
+        for (Object target : new Object[]{mc, mc.gui}) {
+            try {
+                target.getClass().getMethod("setScreen", Screen.class).invoke(target, screen);
+                return;
+            } catch (Exception ignored) {
+                // naechsten Versuch probieren
+            }
+        }
+        mc.player.sendOverlayMessage(Component.literal("Auto Vault: Einstellungen unter Mods > Auto Vault > Config"));
     }
 
     private static ItemStack getDisplayItem(VaultBlockEntity vault) {
@@ -265,6 +249,7 @@ public class AutoVaultMod {
                 if (sharedDataField == null) return null;
             }
             VaultSharedData data = (VaultSharedData) sharedDataField.get(vault);
+            if (!data.hasDisplayItem()) return null;
             return data.getDisplayItem();
         } catch (Exception e) {
             return null;
