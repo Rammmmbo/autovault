@@ -6,5 +6,6 @@
   "autovault.configuration.trident": "Trident",
   "autovault.configuration.normalVaults": "Open normal vaults",
   "autovault.configuration.ominousVaults": "Open ominous vaults",
+  "autovault.configuration.minDisplayTicks": "Min. display time (ticks)",
   "autovault.configuration.dryRun": "Test mode (no clicking)"
 }
