@@ -71,9 +71,14 @@ public class AutoVaultMod {
                 .define("ominousVaults", true);
 
         public static final ModConfigSpec.IntValue MIN_DISPLAY_TICKS = B
-                .comment("Item must be shown at least this many ticks in a row before opening (20 ticks = 1 second)")
+                .comment("Item must have been shown at least this many ticks (20 ticks = 1 second)")
                 .translation("autovault.configuration.minDisplayTicks")
-                .defineInRange("minDisplayTicks", 10, 0, 40);
+                .defineInRange("minDisplayTicks", 0, 0, 40);
+
+        public static final ModConfigSpec.IntValue MAX_DISPLAY_TICKS = B
+                .comment("Only open if the item appeared at most this many ticks ago (40 = off)")
+                .translation("autovault.configuration.maxDisplayTicks")
+                .defineInRange("maxDisplayTicks", 3, 0, 40);
 
         public static final ModConfigSpec.BooleanValue DRY_RUN = B
                 .comment("Test mode: do not click, only show what the mod would open")
@@ -97,6 +102,7 @@ public class AutoVaultMod {
     private static BlockPos trackedPos = null;
     private static ItemStack trackedStack = null;
     private static long trackedSince = 0;
+    private static boolean trackedExact = false; // true = wir haben den Wechsel selbst gesehen
 
     public AutoVaultMod(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
@@ -113,6 +119,7 @@ public class AutoVaultMod {
     private static void resetTrack() {
         trackedPos = null;
         trackedStack = null;
+        trackedExact = false;
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {
@@ -167,6 +174,8 @@ public class AutoVaultMod {
         long now = mc.level.getGameTime();
         if (!pos.equals(trackedPos) || trackedStack == null
                 || !ItemStack.isSameItemSameComponents(trackedStack, display)) {
+            // exakt nur, wenn wir vorher schon ein anderes Item auf demselben Vault gesehen haben
+            trackedExact = pos.equals(trackedPos) && trackedStack != null;
             trackedPos = pos;
             trackedStack = display.copy();
             trackedSince = now;
@@ -188,6 +197,12 @@ public class AutoVaultMod {
 
         if (!isWanted(display)) return;
         if (age < Config.MIN_DISPLAY_TICKS.get()) return;
+
+        int max = Config.MAX_DISPLAY_TICKS.get();
+        if (max < 40) {
+            if (!trackedExact) return;   // Alter unbekannt: auf den naechsten Wechsel warten
+            if (age > max) return;       // zu spaet im Anzeige-Fenster
+        }
 
         String name = display.getHoverName().getString();
         if (Config.DRY_RUN.get()) {
