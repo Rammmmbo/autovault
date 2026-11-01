@@ -83,9 +83,10 @@ public class AutoVaultMod {
     private static int cooldown = 0;
     private static Field sharedDataField;
 
-    // Nach dem Klick: Anzeige noch 20 Ticks lang ins Log schreiben
+    // Nach dem Klick: Anzeige-Wechsel ins Log schreiben
     private static BlockPos watchPos = null;
     private static int watchTicks = 0;
+    private static String lastWatched = "";
 
     public AutoVaultMod(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
@@ -108,9 +109,11 @@ public class AutoVaultMod {
             BlockEntity wbe = mc.level.getBlockEntity(watchPos);
             if (wbe instanceof VaultBlockEntity wv) {
                 ItemStack w = getDisplayItem(wv);
-                LOG.info("[AutoVault] gameTime={} danach(+{}): {}",
-                        mc.level.getGameTime(), 21 - watchTicks,
-                        (w == null || w.isEmpty()) ? "leer" : w.getHoverName().getString());
+                String n = (w == null || w.isEmpty()) ? "leer" : w.getHoverName().getString();
+                if (!n.equals(lastWatched)) {
+                    LOG.info("[AutoVault] gameTime={} Anzeige wechselt zu: {}", mc.level.getGameTime(), n);
+                    lastWatched = n;
+                }
             }
             watchTicks--;
         }
@@ -162,7 +165,8 @@ public class AutoVaultMod {
             mc.gameMode.useItemOn(mc.player, hand, hit);
             cooldown = 10;
             watchPos = pos;
-            watchTicks = 20;
+            watchTicks = 200;
+            lastWatched = "";
             mc.player.sendOverlayMessage(Component.literal("Auto Vault geöffnet bei: " + name));
         }
     }
