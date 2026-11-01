@@ -22,9 +22,14 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.gui.ConfigurationScreen;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
 
@@ -34,12 +39,51 @@ import java.lang.reflect.Field;
 public class AutoVaultMod {
     public static final String MOD_ID = "autovault";
 
+    /** Einstellungen: true = Vault wird bei diesem Item geoeffnet, false = nicht. */
+    public static class Config {
+        private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
+
+        public static final ModConfigSpec.BooleanValue HEAVY_CORE = B
+                .comment("Open the vault when it shows a Heavy Core")
+                .translation("autovault.configuration.heavyCore")
+                .define("heavyCore", true);
+
+        public static final ModConfigSpec.BooleanValue WIND_BURST = B
+                .comment("Open the vault when it shows a Wind Burst book")
+                .translation("autovault.configuration.windBurst")
+                .define("windBurst", true);
+
+        public static final ModConfigSpec.BooleanValue MACE = B
+                .comment("Open the vault when it shows a Mace")
+                .translation("autovault.configuration.mace")
+                .define("mace", false);
+
+        public static final ModConfigSpec.BooleanValue TRIDENT = B
+                .comment("Open the vault when it shows a Trident")
+                .translation("autovault.configuration.trident")
+                .define("trident", false);
+
+        public static final ModConfigSpec.BooleanValue NORMAL_VAULTS = B
+                .comment("Open normal vaults (Trial Key)")
+                .translation("autovault.configuration.normalVaults")
+                .define("normalVaults", true);
+
+        public static final ModConfigSpec.BooleanValue OMINOUS_VAULTS = B
+                .comment("Open ominous vaults (Ominous Trial Key)")
+                .translation("autovault.configuration.ominousVaults")
+                .define("ominousVaults", true);
+
+        public static final ModConfigSpec SPEC = B.build();
+    }
+
     private static KeyMapping toggleKey;
     private static boolean enabled = true;
     private static int cooldown = 0;
     private static Field sharedDataField;
 
-    public AutoVaultMod(IEventBus modBus) {
+    public AutoVaultMod(IEventBus modBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
+        container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(AutoVaultMod::registerKeys);
         NeoForge.EVENT_BUS.addListener(AutoVaultMod::onClientTick);
     }
@@ -55,25 +99,25 @@ public class AutoVaultMod {
 
         while (toggleKey != null && toggleKey.consumeClick()) {
             enabled = !enabled;
-        mc.player.sendOverlayMessage(
-                Component.literal("Auto Vault: " + (enabled ? "AN" : "AUS")));
+            mc.player.sendOverlayMessage(
+                    Component.literal("Auto Vault: " + (enabled ? "AN" : "AUS")));
         }
 
         if (!enabled) return;
         if (cooldown > 0) { cooldown--; return; }
         if (mc.gui.screen() != null) return;
 
-        // Only the vault under the crosshair
         if (!(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
 
         BlockPos pos = hit.getBlockPos();
         BlockState state = mc.level.getBlockState(pos);
         if (!state.is(Blocks.VAULT)) return;
-
-        // Items only rotate in state ACTIVE
         if (state.getValue(VaultBlock.STATE) != VaultState.ACTIVE) return;
 
         boolean ominous = state.getValue(VaultBlock.OMINOUS);
+        if (ominous && !Config.OMINOUS_VAULTS.get()) return;
+        if (!ominous && !Config.NORMAL_VAULTS.get()) return;
+
         Item neededKey = ominous ? Items.OMINOUS_TRIAL_KEY : Items.TRIAL_KEY;
 
         InteractionHand hand;
@@ -94,9 +138,12 @@ public class AutoVaultMod {
     }
 
     private static boolean isWanted(ItemStack stack) {
-        if (stack.is(Items.HEAVY_CORE)) return true;
+        if (stack.is(Items.HEAVY_CORE)) return Config.HEAVY_CORE.get();
+        if (stack.is(Items.MACE)) return Config.MACE.get();
+        if (stack.is(Items.TRIDENT)) return Config.TRIDENT.get();
 
         if (stack.is(Items.ENCHANTED_BOOK)) {
+            if (!Config.WIND_BURST.get()) return false;
             ItemEnchantments stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
             if (stored == null) return false;
             return stored.keySet().stream().anyMatch(h -> h.is(Enchantments.WIND_BURST));
@@ -104,7 +151,6 @@ public class AutoVaultMod {
         return false;
     }
 
-    /** Reads the currently displayed item via reflection (field is found by its type). */
     private static ItemStack getDisplayItem(VaultBlockEntity vault) {
         try {
             if (sharedDataField == null) {
