@@ -134,6 +134,8 @@ public class AutoVaultMod {
         if (isWanted(display)) {
             mc.gameMode.useItemOn(mc.player, hand, hit);
             cooldown = 10;
+            mc.player.sendOverlayMessage(
+                    Component.literal("Auto Vault geöffnet bei: ").append(display.getHoverName()));
         }
     }
 
