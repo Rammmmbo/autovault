@@ -7,5 +7,6 @@
   "autovault.configuration.normalVaults": "Open normal vaults",
   "autovault.configuration.ominousVaults": "Open ominous vaults",
   "autovault.configuration.minDisplayTicks": "Min. display time (ticks)",
+  "autovault.configuration.maxDisplayTicks": "Max. display age (ticks, 40 = off)",
   "autovault.configuration.dryRun": "Test mode (no clicking)"
 }
