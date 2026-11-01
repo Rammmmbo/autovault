@@ -1,5 +1,6 @@
 package de.example.autovault;
 
+import com.mojang.logging.LogUtils;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -32,14 +33,15 @@ import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 
 @Mod(value = AutoVaultMod.MOD_ID, dist = Dist.CLIENT)
 public class AutoVaultMod {
     public static final String MOD_ID = "autovault";
+    private static final Logger LOG = LogUtils.getLogger();
 
-    /** Einstellungen: true = Vault wird bei diesem Item geoeffnet, false = nicht. */
     public static class Config {
         private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
 
@@ -52,11 +54,6 @@ public class AutoVaultMod {
                 .comment("Open the vault when it shows a Wind Burst book")
                 .translation("autovault.configuration.windBurst")
                 .define("windBurst", true);
-
-        public static final ModConfigSpec.BooleanValue MACE = B
-                .comment("Open the vault when it shows a Mace")
-                .translation("autovault.configuration.mace")
-                .define("mace", false);
 
         public static final ModConfigSpec.BooleanValue TRIDENT = B
                 .comment("Open the vault when it shows a Trident")
@@ -73,6 +70,11 @@ public class AutoVaultMod {
                 .translation("autovault.configuration.ominousVaults")
                 .define("ominousVaults", true);
 
+        public static final ModConfigSpec.BooleanValue DRY_RUN = B
+                .comment("Test mode: do not click, only show what the mod would open")
+                .translation("autovault.configuration.dryRun")
+                .define("dryRun", false);
+
         public static final ModConfigSpec SPEC = B.build();
     }
 
@@ -80,6 +82,10 @@ public class AutoVaultMod {
     private static boolean enabled = true;
     private static int cooldown = 0;
     private static Field sharedDataField;
+
+    // Nach dem Klick: Anzeige noch 20 Ticks lang ins Log schreiben
+    private static BlockPos watchPos = null;
+    private static int watchTicks = 0;
 
     public AutoVaultMod(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
@@ -96,6 +102,18 @@ public class AutoVaultMod {
     private static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
+
+        // Log: was zeigt der Vault nach dem Klick?
+        if (watchTicks > 0 && watchPos != null) {
+            BlockEntity wbe = mc.level.getBlockEntity(watchPos);
+            if (wbe instanceof VaultBlockEntity wv) {
+                ItemStack w = getDisplayItem(wv);
+                LOG.info("[AutoVault] gameTime={} danach(+{}): {}",
+                        mc.level.getGameTime(), 21 - watchTicks,
+                        (w == null || w.isEmpty()) ? "leer" : w.getHoverName().getString());
+            }
+            watchTicks--;
+        }
 
         while (toggleKey != null && toggleKey.consumeClick()) {
             enabled = !enabled;
@@ -132,16 +150,25 @@ public class AutoVaultMod {
         if (display == null || display.isEmpty()) return;
 
         if (isWanted(display)) {
+            String name = display.getHoverName().getString();
+            if (Config.DRY_RUN.get()) {
+                LOG.info("[AutoVault] gameTime={} TESTMODUS wuerde oeffnen bei: {}",
+                        mc.level.getGameTime(), name);
+                mc.player.sendOverlayMessage(Component.literal("TEST: wuerde öffnen bei: " + name));
+                cooldown = 10;
+                return;
+            }
+            LOG.info("[AutoVault] gameTime={} KLICK bei: {}", mc.level.getGameTime(), name);
             mc.gameMode.useItemOn(mc.player, hand, hit);
             cooldown = 10;
-            mc.player.sendOverlayMessage(
-                    Component.literal("Auto Vault geöffnet bei: ").append(display.getHoverName()));
+            watchPos = pos;
+            watchTicks = 20;
+            mc.player.sendOverlayMessage(Component.literal("Auto Vault geöffnet bei: " + name));
         }
     }
 
     private static boolean isWanted(ItemStack stack) {
         if (stack.is(Items.HEAVY_CORE)) return Config.HEAVY_CORE.get();
-        if (stack.is(Items.MACE)) return Config.MACE.get();
         if (stack.is(Items.TRIDENT)) return Config.TRIDENT.get();
 
         if (stack.is(Items.ENCHANTED_BOOK)) {
