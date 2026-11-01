@@ -70,6 +70,11 @@ public class AutoVaultMod {
                 .translation("autovault.configuration.ominousVaults")
                 .define("ominousVaults", true);
 
+        public static final ModConfigSpec.IntValue MIN_DISPLAY_TICKS = B
+                .comment("Item must be shown at least this many ticks in a row before opening (20 ticks = 1 second)")
+                .translation("autovault.configuration.minDisplayTicks")
+                .defineInRange("minDisplayTicks", 10, 0, 40);
+
         public static final ModConfigSpec.BooleanValue DRY_RUN = B
                 .comment("Test mode: do not click, only show what the mod would open")
                 .translation("autovault.configuration.dryRun")
@@ -83,10 +88,15 @@ public class AutoVaultMod {
     private static int cooldown = 0;
     private static Field sharedDataField;
 
-    // Nach dem Klick: Anzeige-Wechsel ins Log schreiben
+    // Logging nach dem Klick
     private static BlockPos watchPos = null;
     private static int watchTicks = 0;
     private static String lastWatched = "";
+
+    // Wie lange wird das aktuelle Item schon angezeigt?
+    private static BlockPos trackedPos = null;
+    private static ItemStack trackedStack = null;
+    private static long trackedSince = 0;
 
     public AutoVaultMod(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
@@ -98,6 +108,11 @@ public class AutoVaultMod {
     private static void registerKeys(RegisterKeyMappingsEvent event) {
         toggleKey = new KeyMapping("key.autovault.toggle", GLFW.GLFW_KEY_G, KeyMapping.Category.MISC);
         event.register(toggleKey);
+    }
+
+    private static void resetTrack() {
+        trackedPos = null;
+        trackedStack = null;
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {
@@ -124,16 +139,41 @@ public class AutoVaultMod {
                     Component.literal("Auto Vault: " + (enabled ? "AN" : "AUS")));
         }
 
-        if (!enabled) return;
-        if (cooldown > 0) { cooldown--; return; }
-        if (mc.gui.screen() != null) return;
+        if (!enabled) { resetTrack(); return; }
+        if (mc.gui.screen() != null) { resetTrack(); return; }
 
-        if (!(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
+        boolean onCooldown = cooldown > 0;
+        if (onCooldown) cooldown--;
+
+        if (!(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) {
+            resetTrack();
+            return;
+        }
 
         BlockPos pos = hit.getBlockPos();
         BlockState state = mc.level.getBlockState(pos);
-        if (!state.is(Blocks.VAULT)) return;
-        if (state.getValue(VaultBlock.STATE) != VaultState.ACTIVE) return;
+        if (!state.is(Blocks.VAULT) || state.getValue(VaultBlock.STATE) != VaultState.ACTIVE) {
+            resetTrack();
+            return;
+        }
+
+        BlockEntity be = mc.level.getBlockEntity(pos);
+        if (!(be instanceof VaultBlockEntity vault)) { resetTrack(); return; }
+
+        ItemStack display = getDisplayItem(vault);
+        if (display == null || display.isEmpty()) { resetTrack(); return; }
+
+        // Anzeigedauer verfolgen
+        long now = mc.level.getGameTime();
+        if (!pos.equals(trackedPos) || trackedStack == null
+                || !ItemStack.isSameItemSameComponents(trackedStack, display)) {
+            trackedPos = pos;
+            trackedStack = display.copy();
+            trackedSince = now;
+        }
+        long age = now - trackedSince;
+
+        if (onCooldown) return;
 
         boolean ominous = state.getValue(VaultBlock.OMINOUS);
         if (ominous && !Config.OMINOUS_VAULTS.get()) return;
@@ -146,29 +186,25 @@ public class AutoVaultMod {
         else if (mc.player.getOffhandItem().is(neededKey)) hand = InteractionHand.OFF_HAND;
         else return;
 
-        BlockEntity be = mc.level.getBlockEntity(pos);
-        if (!(be instanceof VaultBlockEntity vault)) return;
+        if (!isWanted(display)) return;
+        if (age < Config.MIN_DISPLAY_TICKS.get()) return;
 
-        ItemStack display = getDisplayItem(vault);
-        if (display == null || display.isEmpty()) return;
-
-        if (isWanted(display)) {
-            String name = display.getHoverName().getString();
-            if (Config.DRY_RUN.get()) {
-                LOG.info("[AutoVault] gameTime={} TESTMODUS wuerde oeffnen bei: {}",
-                        mc.level.getGameTime(), name);
-                mc.player.sendOverlayMessage(Component.literal("TEST: wuerde öffnen bei: " + name));
-                cooldown = 10;
-                return;
-            }
-            LOG.info("[AutoVault] gameTime={} KLICK bei: {}", mc.level.getGameTime(), name);
-            mc.gameMode.useItemOn(mc.player, hand, hit);
+        String name = display.getHoverName().getString();
+        if (Config.DRY_RUN.get()) {
+            LOG.info("[AutoVault] gameTime={} TESTMODUS wuerde oeffnen bei: {} (seit {} Ticks)", now, name, age);
+            mc.player.sendOverlayMessage(Component.literal("TEST: wuerde öffnen bei: " + name + " (" + age + " Ticks)"));
             cooldown = 10;
-            watchPos = pos;
-            watchTicks = 200;
-            lastWatched = "";
-            mc.player.sendOverlayMessage(Component.literal("Auto Vault geöffnet bei: " + name));
+            return;
         }
+
+        LOG.info("[AutoVault] gameTime={} KLICK bei: {} (seit {} Ticks)", now, name, age);
+        mc.gameMode.useItemOn(mc.player, hand, hit);
+        cooldown = 10;
+        watchPos = pos;
+        watchTicks = 200;
+        lastWatched = "";
+        resetTrack();
+        mc.player.sendOverlayMessage(Component.literal("Auto Vault geöffnet bei: " + name + " (" + age + " Ticks)"));
     }
 
     private static boolean isWanted(ItemStack stack) {
