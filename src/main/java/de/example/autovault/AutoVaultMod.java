@@ -93,7 +93,7 @@ public class AutoVaultMod {
     private static int cooldown = 0;
     private static Field sharedDataField;
 
-    // Logging nach dem Klick
+    // Logging nach dem Klick bzw. nach der Testmodus-Meldung
     private static BlockPos watchPos = null;
     private static int watchTicks = 0;
     private static String lastWatched = "";
@@ -122,18 +122,23 @@ public class AutoVaultMod {
         trackedExact = false;
     }
 
+    private static long ms() {
+        return System.currentTimeMillis() % 100000;
+    }
+
     private static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
 
-        // Log: was zeigt der Vault nach dem Klick?
+        // Log: was zeigt der Vault nach dem Klick bzw. nach der Testmodus-Meldung?
         if (watchTicks > 0 && watchPos != null) {
             BlockEntity wbe = mc.level.getBlockEntity(watchPos);
             if (wbe instanceof VaultBlockEntity wv) {
                 ItemStack w = getDisplayItem(wv);
                 String n = (w == null || w.isEmpty()) ? "leer" : w.getHoverName().getString();
                 if (!n.equals(lastWatched)) {
-                    LOG.info("[AutoVault] gameTime={} Anzeige wechselt zu: {}", mc.level.getGameTime(), n);
+                    LOG.info("[AutoVault] gameTime={} ms={} DANACH Anzeige wechselt zu: {}",
+                            mc.level.getGameTime(), ms(), n);
                     lastWatched = n;
                 }
             }
@@ -174,6 +179,12 @@ public class AutoVaultMod {
         long now = mc.level.getGameTime();
         if (!pos.equals(trackedPos) || trackedStack == null
                 || !ItemStack.isSameItemSameComponents(trackedStack, display)) {
+            // Jeder Wechsel wird ins Log geschrieben (zeigt, wie lange jedes Item sichtbar war)
+            if (trackedStack != null && pos.equals(trackedPos)) {
+                LOG.info("[AutoVault] gameTime={} ms={} WECHSEL {} -> {} (vorher {} Ticks sichtbar)",
+                        now, ms(), trackedStack.getHoverName().getString(),
+                        display.getHoverName().getString(), now - trackedSince);
+            }
             // exakt nur, wenn wir vorher schon ein anderes Item auf demselben Vault gesehen haben
             trackedExact = pos.equals(trackedPos) && trackedStack != null;
             trackedPos = pos;
@@ -205,14 +216,20 @@ public class AutoVaultMod {
         }
 
         String name = display.getHoverName().getString();
+
         if (Config.DRY_RUN.get()) {
-            LOG.info("[AutoVault] gameTime={} TESTMODUS wuerde oeffnen bei: {} (seit {} Ticks)", now, name, age);
+            LOG.info("[AutoVault] gameTime={} ms={} TESTMODUS wuerde oeffnen bei: {} (seit {} Ticks, exakt={})",
+                    now, ms(), name, age, trackedExact);
             mc.player.sendOverlayMessage(Component.literal("TEST: wuerde öffnen bei: " + name + " (" + age + " Ticks)"));
-            cooldown = 10;
+            cooldown = 40;
+            watchPos = pos;
+            watchTicks = 60;
+            lastWatched = name;
             return;
         }
 
-        LOG.info("[AutoVault] gameTime={} KLICK bei: {} (seit {} Ticks)", now, name, age);
+        LOG.info("[AutoVault] gameTime={} ms={} KLICK bei: {} (seit {} Ticks, exakt={})",
+                now, ms(), name, age, trackedExact);
         mc.gameMode.useItemOn(mc.player, hand, hit);
         cooldown = 10;
         watchPos = pos;
