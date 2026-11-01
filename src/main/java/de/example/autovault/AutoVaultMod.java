@@ -55,13 +55,13 @@ public class AutoVaultMod {
 
         while (toggleKey != null && toggleKey.consumeClick()) {
             enabled = !enabled;
-            mc.player.displayClientMessage(
-                    Component.literal("Auto Vault: " + (enabled ? "AN" : "AUS")), true);
+        mc.player.sendOverlayMessage(
+                Component.literal("Auto Vault: " + (enabled ? "AN" : "AUS")));
         }
 
         if (!enabled) return;
         if (cooldown > 0) { cooldown--; return; }
-        if (mc.screen != null) return;
+        if (mc.gui.screen() != null) return;
 
         // Only the vault under the crosshair
         if (!(mc.hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) return;
