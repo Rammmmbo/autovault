@@ -38,7 +38,9 @@ import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -53,57 +55,87 @@ public class AutoVaultMod {
     public static class Config {
         private static final ModConfigSpec.Builder B = new ModConfigSpec.Builder();
 
-        public static final ModConfigSpec.BooleanValue ENABLED = B
-                .comment("Enable or disable the auto-opener mod entirely")
-                .translation("autovault.configuration.enabled")
-                .define("enabled", true);
+        // Abschnitt "Allgemein"
+        public static final ModConfigSpec.BooleanValue ENABLED;
+        public static final ModConfigSpec.BooleanValue OPEN_NORMAL;
+        public static final ModConfigSpec.BooleanValue OPEN_OMINOUS;
 
-        public static final ModConfigSpec.BooleanValue OPEN_NORMAL = B
-                .comment("Allow auto-opening normal trial vaults")
-                .translation("autovault.configuration.openNormal")
-                .define("openNormal", true);
+        // Abschnitt "Filter"
+        public static final ModConfigSpec.BooleanValue USE_FILTER;
+        public static final ModConfigSpec.BooleanValue TRIDENT;
+        public static final ModConfigSpec.BooleanValue MACE;
+        public static final ModConfigSpec.BooleanValue CORE;
+        public static final ModConfigSpec.BooleanValue BOOK;
+        public static final ModConfigSpec.BooleanValue WIND_BURST_ONLY;
+        public static final ModConfigSpec.ConfigValue<String> CUSTOM_ITEMS;
 
-        public static final ModConfigSpec.BooleanValue OPEN_OMINOUS = B
-                .comment("Allow auto-opening ominous trial vaults")
-                .translation("autovault.configuration.openOminous")
-                .define("openOminous", true);
+        // Abschnitt "Statistik"
+        public static final ModConfigSpec.IntValue TOTAL_OPENS;
+        public static final ModConfigSpec.IntValue HITS;
 
-        public static final ModConfigSpec.BooleanValue USE_FILTER = B
-                .comment("If ON, vaults only open if they show a selected preset or custom item. If OFF, every vault opens.")
-                .translation("autovault.configuration.useFilter")
-                .define("useFilter", true);
+        public static final ModConfigSpec SPEC;
 
-        public static final ModConfigSpec.BooleanValue WIND_BURST_ONLY = B
-                .comment("Enchanted Books only count if they have the Wind Burst enchantment")
-                .translation("autovault.configuration.windBurstOnly")
-                .define("windBurstOnly", true);
+        static {
+            B.comment("General settings").translation("autovault.configuration.general").push("general");
+            ENABLED = B
+                    .comment("Enable or disable the auto-opener mod entirely")
+                    .translation("autovault.configuration.enabled")
+                    .define("enabled", true);
+            OPEN_NORMAL = B
+                    .comment("Allow auto-opening normal trial vaults")
+                    .translation("autovault.configuration.openNormal")
+                    .define("openNormal", true);
+            OPEN_OMINOUS = B
+                    .comment("Allow auto-opening ominous trial vaults")
+                    .translation("autovault.configuration.openOminous")
+                    .define("openOminous", true);
+            B.pop();
 
-        public static final ModConfigSpec.BooleanValue TRIDENT = B
-                .comment("Preset: Trident")
-                .translation("autovault.configuration.trident")
-                .define("trident", true);
+            B.comment("Which items should open a vault").translation("autovault.configuration.filter").push("filter");
+            USE_FILTER = B
+                    .comment("If ON, vaults only open if they show a selected item. If OFF, every vault opens.")
+                    .translation("autovault.configuration.useFilter")
+                    .define("useFilter", true);
+            CORE = B
+                    .comment("Open for Heavy Core")
+                    .translation("autovault.configuration.core")
+                    .define("heavyCore", true);
+            BOOK = B
+                    .comment("Open for Enchanted Books")
+                    .translation("autovault.configuration.book")
+                    .define("enchantedBook", true);
+            WIND_BURST_ONLY = B
+                    .comment("Enchanted Books only count if they have Wind Burst")
+                    .translation("autovault.configuration.windBurstOnly")
+                    .define("windBurstOnly", true);
+            TRIDENT = B
+                    .comment("Open for Trident")
+                    .translation("autovault.configuration.trident")
+                    .define("trident", true);
+            MACE = B
+                    .comment("Open for Mace")
+                    .translation("autovault.configuration.mace")
+                    .define("mace", true);
+            CUSTOM_ITEMS = B
+                    .comment("Custom items: IDs separated by commas, e.g. minecraft:diamond,minecraft:emerald")
+                    .translation("autovault.configuration.customItems")
+                    .define("customItems", "");
+            B.pop();
 
-        public static final ModConfigSpec.BooleanValue MACE = B
-                .comment("Preset: Mace")
-                .translation("autovault.configuration.mace")
-                .define("mace", true);
+            B.comment("Counts how often the opened vault really gave the item. Set to 0 to reset.")
+                    .translation("autovault.configuration.statistics").push("statistics");
+            TOTAL_OPENS = B
+                    .comment("Number of vaults opened by the mod")
+                    .translation("autovault.configuration.totalOpens")
+                    .defineInRange("totalOpens", 0, 0, Integer.MAX_VALUE);
+            HITS = B
+                    .comment("How often the vault really gave the item it was opened for")
+                    .translation("autovault.configuration.hits")
+                    .defineInRange("hits", 0, 0, Integer.MAX_VALUE);
+            B.pop();
 
-        public static final ModConfigSpec.BooleanValue CORE = B
-                .comment("Preset: Heavy Core")
-                .translation("autovault.configuration.core")
-                .define("heavyCore", true);
-
-        public static final ModConfigSpec.BooleanValue BOOK = B
-                .comment("Preset: Enchanted Book")
-                .translation("autovault.configuration.book")
-                .define("enchantedBook", true);
-
-        public static final ModConfigSpec.ConfigValue<String> CUSTOM_ITEMS = B
-                .comment("Custom filter: item IDs separated by commas, e.g. minecraft:diamond,minecraft:emerald")
-                .translation("autovault.configuration.customItems")
-                .define("customItems", "");
-
-        public static final ModConfigSpec SPEC = B.build();
+            SPEC = B.build();
+        }
     }
 
     private static ModContainer modContainer;
@@ -111,6 +143,15 @@ public class AutoVaultMod {
     private static KeyMapping openGuiKey;
     private static int cooldown = 0;
     private static Field sharedDataField;
+
+    // Auswertung nach dem Klick: was wirft der Vault wirklich aus?
+    private static boolean watching = false;
+    private static BlockPos watchPos = null;
+    private static ItemStack triggerStack = ItemStack.EMPTY;
+    private static int watchElapsed = 0;
+    private static boolean matched = false;
+    private static String lastSeen = "";
+    private static final List<String> seen = new ArrayList<>();
 
     public AutoVaultMod(IEventBus modBus, ModContainer container) {
         modContainer = container;
@@ -130,6 +171,8 @@ public class AutoVaultMod {
     private static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.gameMode == null) return;
+
+        if (watching) trackEjection(mc);
 
         while (toggleKey != null && toggleKey.consumeClick()) {
             boolean now = !Config.ENABLED.get();
@@ -170,6 +213,8 @@ public class AutoVaultMod {
                 windBurstBook ? "autovault.hud.spinning_item_wind_burst" : "autovault.hud.spinning_item",
                 display.getHoverName()));
 
+        if (watching) return; // erst das letzte Ergebnis auswerten
+
         InteractionHand hand = findKeyHand(mc, ominous);
         if (hand == null) return;
 
@@ -181,6 +226,62 @@ public class AutoVaultMod {
             mc.player.swing(hand);
         }
         cooldown = 5;
+
+        // Auswertung starten
+        watching = true;
+        watchPos = pos;
+        triggerStack = display.copy();
+        watchElapsed = 0;
+        matched = false;
+        lastSeen = "";
+        seen.clear();
+        mc.player.sendOverlayMessage(Component.translatable("autovault.hud.opened", display.getHoverName()));
+    }
+
+    /** Beobachtet, was der Vault nach dem Klick wirklich auswirft, und zaehlt die Treffer. */
+    private static void trackEjection(Minecraft mc) {
+        watchElapsed++;
+        if (watchElapsed < 2) return; // die ersten Ticks zeigen noch die alte Anzeige
+
+        BlockEntity be = mc.level.getBlockEntity(watchPos);
+        ItemStack cur = (be instanceof VaultBlockEntity v) ? getDisplayItem(v) : null;
+        boolean empty = cur == null || cur.isEmpty();
+
+        if (!empty) {
+            String name = cur.getHoverName().getString();
+            if (seen.isEmpty() || !name.equals(lastSeen)) {
+                seen.add(name);
+                lastSeen = name;
+                if (matchesTrigger(cur)) matched = true;
+            }
+        }
+
+        if ((empty && !seen.isEmpty()) || watchElapsed > 200) {
+            finishTracking(mc);
+        }
+    }
+
+    private static boolean matchesTrigger(ItemStack cur) {
+        if (!cur.is(triggerStack.getItem())) return false;
+        if (cur.is(Items.ENCHANTED_BOOK) && hasWindBurst(triggerStack)) return hasWindBurst(cur);
+        return true;
+    }
+
+    private static void finishTracking(Minecraft mc) {
+        watching = false;
+        if (seen.isEmpty()) return;
+
+        int total = Config.TOTAL_OPENS.get() + 1;
+        int hits = Config.HITS.get() + (matched ? 1 : 0);
+        Config.TOTAL_OPENS.set(total);
+        Config.HITS.set(hits);
+        Config.TOTAL_OPENS.save();
+
+        String wanted = triggerStack.getHoverName().getString();
+        LOG.info("[AutoVault] ERGEBNIS gewollt={} erhalten={} treffer={} ({}/{})",
+                wanted, seen, matched, hits, total);
+        mc.player.sendOverlayMessage(Component.translatable(
+                matched ? "autovault.stats.hit" : "autovault.stats.miss", wanted, hits, total));
     }
 
     private static InteractionHand findKeyHand(Minecraft mc, boolean ominous) {
